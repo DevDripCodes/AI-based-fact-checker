@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Misinformation Detector</title>
+    <!-- Use the Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 800px;
+            padding: 2rem;
+            margin: auto;
+        }
+        .result-box {
+            border: 1px solid #e5e7eb;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            background-color: #fff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .highlight {
+            background-color: #fca5a5;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="container bg-white rounded-xl shadow-lg p-6 md:p-10 text-center">
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-2">AI Misinformation Detector</h1>
+        <p class="text-gray-600 mb-6">Enter a statement to fact-check it with a powerful, AI-driven analysis.</p>
+        
+        <textarea id="statementInput" class="w-full h-40 p-4 mb-4 text-gray-800 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300" placeholder="Paste a statement here (e.g., 'Humans are a major cause of climate change.')."></textarea>
+        
+        <button id="checkButton" class="w-full bg-blue-600 text-white font-semibold py-3 px-6 rounded-full hover:bg-blue-700 transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+            Check Fact
+        </button>
+
+        <div id="loading" class="hidden mt-6">
+            <div class="flex items-center justify-center">
+                <div class="loading-spinner"></div>
+                <span class="ml-3 text-gray-600">Checking...</span>
+            </div>
+        </div>
+
+        <div id="resultContainer" class="hidden result-box mt-8 text-left">
+            <h2 class="text-xl font-bold mb-2">Analysis Result</h2>
+            <div id="verdict" class="text-lg font-semibold mb-4"></div>
+            <p id="explanation" class="text-gray-700 leading-relaxed"></p>
+        </div>
+
+        <div id="errorBox" class="hidden mt-6 p-4 rounded-lg bg-red-100 text-red-700 text-sm">
+            <p id="errorMessage"></p>
+        </div>
+    </div>
+
+<script>
+    const statementInput = document.getElementById('statementInput');
+    const checkButton = document.getElementById('checkButton');
+    const loadingDiv = document.getElementById('loading');
+    const resultContainer = document.getElementById('resultContainer');
+    const verdictDiv = document.getElementById('verdict');
+    const explanationP = document.getElementById('explanation');
+    const errorBox = document.getElementById('errorBox');
+    const errorMessage = document.getElementById('errorMessage');
+
+    // Use relative URL for Vercel deployment
+    const BACKEND_URL = "/api";
+
+    function showError(message) {
+        errorBox.classList.remove('hidden');
+        errorMessage.textContent = message;
+        resultContainer.classList.add('hidden');
+    }
+
+    function hideError() {
+        errorBox.classList.add('hidden');
+    }
+
+    // Highlight specific statements in the explanation
+    function highlightText(text, statementsToHighlight) {
+        if (!statementsToHighlight || !Array.isArray(statementsToHighlight)) {
+            return text;
+        }
+        
+        let highlightedText = text;
+        statementsToHighlight.forEach(highlight => {
+            if (highlight && highlight.statement) {
+                const statement = highlight.statement;
+                const regex = new RegExp(statement.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                highlightedText = highlightedText.replace(
+                    regex,
+                    `<mark class="highlight">${statement}</mark>`
+                );
+            }
+        });
+        return highlightedText;
+    }
+
+    async function checkFact() {
+        const message = statementInput.value.trim();
+        if (!message) {
+            showError("Please enter a statement to check.");
+            return;
+        }
+
+        hideError();
+        resultContainer.classList.add('hidden');
+        loadingDiv.classList.remove('hidden');
+        checkButton.disabled = true;
+
+        try {
+            const response = await fetch(BACKEND_URL, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ message })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                showError(`Error (${response.status}): ${data.error || response.statusText}`);
+                return;
+            }
+
+            // Handle different response structures
+            if (data.error) {
+                showError(`Error: ${data.error}`);
+                return;
+            }
+
+            // Set verdict with proper fallback
+            const verdict = data.verdict || "UNKNOWN";
+            verdictDiv.textContent = `Verdict: ${verdict}`;
+
+            // Change verdict color based on result
+            let verdictColor = 'text-gray-600';
+            const lowerVerdict = verdict.toLowerCase();
+            if (lowerVerdict.includes('true')) {
+                verdictColor = 'text-green-600';
+            } else if (lowerVerdict.includes('false') || lowerVerdict.includes('unsupported')) {
+                verdictColor = 'text-red-600';
+            } else if (lowerVerdict.includes('misleading')) {
+                verdictColor = 'text-yellow-600';
+            }
+            verdictDiv.className = `text-lg font-semibold mb-4 ${verdictColor}`;
+
+            // Set explanation with highlighting
+            const explanation = data.explanation || "No explanation provided.";
+            const explanationHTML = highlightText(explanation, data.highlights);
+            explanationP.innerHTML = explanationHTML;
+
+            resultContainer.classList.remove('hidden');
+
+        } catch (error) {
+            console.error("Fact-checking failed:", error);
+            showError(`Network error: ${error.message}`);
+        } finally {
+            loadingDiv.classList.add('hidden');
+            checkButton.disabled = false;
+        }
+    }
+
+    checkButton.addEventListener('click', checkFact);
+    
+    // Enter key support
+    statementInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            checkFact();
+        }
+    });
+</script>
+
+</body>
+</html> 
